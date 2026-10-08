@@ -1,0 +1,76 @@
+#!/bin/sh
+# ==============================================================================
+# mcv - Quick management CLI for Tachyon + Xray (MyCloudVault)
+# ==============================================================================
+
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+RED='\033[0;31m'
+CYAN='\033[0;36m'
+NC='\033[0m'
+
+case "$1" in
+    status)
+        echo -e "${CYAN}=== Статус Xray Моста ===${NC}"
+        if ps | grep -E '/tmp/xray' | grep -v grep >/dev/null; then
+            PID=$(ps | grep '/tmp/xray' | grep -v grep | awk '{print $1}')
+            echo -e "Процесс Xray:   ${GREEN}РАБОТАЕТ${NC} (PID: $PID)"
+        else
+            echo -e "Процесс Xray:   ${RED}ОСТАНОВЛЕН${NC}"
+        fi
+        
+        if netstat -tulpn 2>/dev/null | grep -q ":10853 "; then
+            echo -e "SOCKS5 порт:    ${GREEN}127.0.0.1:10853 (Слушает)${NC}"
+        else
+            echo -e "SOCKS5 порт:    ${RED}Не отвечает${NC}"
+        fi
+        
+        if [ -f /etc/xray/sub.url ]; then
+            echo -e "URL подписки:   $(cat /etc/xray/sub.url)"
+        fi
+        
+        echo ""
+        echo -e "${CYAN}=== Проверка внешнего IP и задержки ===${NC}"
+        RES=$(curl -s -m 5 --socks5-hostname 127.0.0.1:10853 https://cloudflare.com/cdn-cgi/trace 2>/dev/null || true)
+        if echo "$RES" | grep -q "ip="; then
+            IP=$(echo "$RES" | grep "^ip=" | cut -d'=' -f2)
+            LOC=$(echo "$RES" | grep "^loc=" | cut -d'=' -f2)
+            echo -e "IP через прокси: ${GREEN}$IP${NC} (Страна: ${GREEN}$LOC${NC})"
+        else
+            echo -e "Проверка curl:  ${RED}Таймаут или ошибка подключения${NC}"
+        fi
+        ;;
+    update)
+        /usr/bin/update-xray-sub.sh "$2"
+        ;;
+    restart)
+        echo -e "${YELLOW}[*] Перезапуск службы Xray...${NC}"
+        /etc/init.d/xray restart
+        sleep 1
+        $0 status
+        ;;
+    log)
+        echo -e "${CYAN}=== Последние 30 записей лога Xray ===${NC}"
+        logread | grep xray | tail -n 30
+        ;;
+    test)
+        echo -e "${CYAN}Тестирование через SOCKS5 127.0.0.1:10853...${NC}"
+        curl -v -m 6 --socks5-hostname 127.0.0.1:10853 https://cloudflare.com/cdn-cgi/trace
+        ;;
+    uninstall)
+        if [ -x /usr/bin/uninstall-xray.sh ]; then
+            /usr/bin/uninstall-xray.sh
+        else
+            echo "Файл деинсталляции не найден."
+        fi
+        ;;
+    *)
+        echo -e "${CYAN}Управление Xray + MyCloudVault для Tachyon:${NC}"
+        echo "  mcv status         - Проверить статус службы, порт и внешний IP"
+        echo "  mcv update [URL]   - Обновить подписку (из сохраненного URL или нового)"
+        echo "  mcv restart        - Перезапустить службу Xray"
+        echo "  mcv log            - Показать недавние соединения"
+        echo "  mcv test           - Подробный тест соединения через curl"
+        echo "  mcv uninstall      - Полное удаление и возврат к стандартному Tachyon"
+        ;;
+esac
